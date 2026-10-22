@@ -1,0 +1,24 @@
+{
+  "name": "osm-campus",
+  "private": true,
+  "version": "0.1.0",
+  "description": "In-browser 3D campus model built from micro-mapped OpenStreetMap data",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "fetch-data": "node scripts/fetch-osm.mjs",
+    "smoke": "node test/smoke.mjs",
+    "extract": "bash scripts/extract-osmium.sh",
+    "gltf": "node scripts/build-gltf.mjs",
+    "test:pipeline": "node test/pipeline.mjs"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1",
+    "vite": "7.3.7"
+  }
+}
