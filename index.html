@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>OSM Campus 3D</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <div id="viewport"></div>
+
+  <aside id="panel" aria-label="Campus model controls">
+    <header class="panel-head">
+      <h1>OSM Campus 3D</h1>
+      <button id="panel-toggle" class="icon-btn" aria-expanded="true" aria-controls="panel-body" title="Collapse panel">–</button>
+    </header>
+
+    <div id="panel-body">
+      <section class="block">
+        <label for="campus" class="eyebrow">Campus</label>
+        <div class="row">
+          <select id="campus"></select>
+          <button id="load" class="btn">Load</button>
+        </div>
+        <details class="more">
+          <summary>Other area or file</summary>
+          <label for="bbox" class="eyebrow">Bounding box (south, west, north, east)</label>
+          <div class="row">
+            <input id="bbox" type="text" inputmode="decimal" placeholder="53.1435, 8.1735, 53.1505, 8.1880" spellcheck="false">
+            <button id="load-bbox" class="btn">Go</button>
+          </div>
+          <label for="file" class="eyebrow">Or open an OSM file (.osm XML or Overpass .json)</label>
+          <input id="file" type="file" accept=".osm,.xml,.json,application/json">
+        </details>
+        <p id="status" class="status" role="status" aria-live="polite">Starting…</p>
+      </section>
+
+      <section class="block" id="summary-block" hidden>
+        <div id="summary" class="summary"></div>
+      </section>
+
+      <section class="block">
+        <div class="toggles">
+          <button id="night" class="chip" aria-pressed="false">Night</button>
+          <button id="labels" class="chip" aria-pressed="true">Labels</button>
+          <button id="shadows" class="chip" aria-pressed="true">Shadows</button>
+          <button id="reset-view" class="chip">Reset view</button>
+        </div>
+      </section>
+
+      <section class="block" id="layers-block" hidden>
+        <h2 class="eyebrow">Layers</h2>
+        <div id="layers"></div>
+      </section>
+
+      <section class="block" id="unmodelled-block" hidden>
+        <details>
+          <summary>Mapped but not yet modelled</summary>
+          <p class="hint">Point features in this area with no 3D model in the catalogue yet (src/furniture.js).</p>
+          <ul id="unmodelled" class="tally"></ul>
+        </details>
+      </section>
+
+      <p class="hint">Drag to pan · right-drag or two fingers to rotate · scroll to zoom · click any object to inspect its OSM tags.</p>
+    </div>
+  </aside>
+
+  <aside id="inspector" hidden aria-label="Selected feature">
+    <header class="panel-head">
+      <h2 id="insp-title">Feature</h2>
+      <button id="insp-close" class="icon-btn" title="Close">×</button>
+    </header>
+    <p id="insp-notes" class="hint"></p>
+    <div class="row">
+      <a id="insp-osm" class="btn" target="_blank" rel="noopener">View on OSM</a>
+      <a id="insp-edit" class="btn" target="_blank" rel="noopener">Edit</a>
+      <button id="insp-street" class="btn">Street level</button>
+    </div>
+    <table id="insp-tags" class="tags"></table>
+  </aside>
+
+  <footer id="attribution">
+    Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, ODbL
+  </footer>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
