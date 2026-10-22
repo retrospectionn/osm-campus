@@ -7,10 +7,9 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { PRESETS, campusQuery, discoveryQuery, fetchOverpass, bboxAreaKm2, padBbox } from './query.js';
-import { parseOsm, makeProjection, extractFeatures, boundsOf } from './osm.js';
-import { buildBuildings } from './buildings.js';
-import { buildAreas, buildPaths, buildBarriers } from './ground.js';
-import { buildFurniture } from './furniture.js';
+import { parseOsm, boundsOf } from './osm.js';
+import { buildCampus } from './model.js';
+import { campusToGlb } from './export.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_KM2 = 4;
@@ -130,13 +129,17 @@ async function loadFromOverpass({ bbox, name, id }) {
     let json = null, source = null;
     if (id) {
       // A snapshot written by `npm run fetch-data` loads instantly and offline.
-      try {
-        const res = await fetch(`./data/${id}.json`, { signal: abort.signal });
-        if (res.ok && (res.headers.get('content-type') || '').includes('json')) {
-          json = await res.json();
-          source = `local snapshot data/${id}.json`;
-        }
-      } catch { /* fall through to Overpass */ }
+      // Overpass JSON from `npm run fetch-data`, or OSM XML from `npm run extract` (osmium).
+      for (const ext of ['json', 'osm']) {
+        try {
+          const res = await fetch(`./data/${id}.${ext}`, { signal: abort.signal });
+          const type = res.headers.get('content-type') || '';
+          if (!res.ok || type.includes('html')) continue;
+          json = await res.text();
+          source = `local snapshot data/${id}.${ext}`;
+          break;
+        } catch { /* fall through to Overpass */ }
+      }
     }
     if (!json) {
       ({ json, source } = await fetchOverpass(campusQuery(bbox), { signal: abort.signal, onStatus: setStatus }));
@@ -178,39 +181,12 @@ function showModel(osm, { name, bbox, source }) {
   const t0 = performance.now();
   disposeModel();
   hideInspector();
-  const [s, w, n, e] = bbox;
-  const proj = makeProjection((s + n) / 2, (w + e) / 2);
-  const feats = extractFeatures(osm, proj);
-
-  const root = new THREE.Group();
-  const layers = [];
-
-  const areas = buildAreas(feats.polygons);
-  if (areas.mesh) { root.add(areas.mesh); layers.push({ key: 'areas', label: 'Surfaces', group: 'Base', swatch: '#9cbf72', count: areas.count, detail: 'grass, water, parking, plazas', object: areas.mesh }); }
-  const paths = buildPaths(feats.lines);
-  if (paths.mesh) {
-    const c = paths.counts;
-    const foot = (c.footway || 0) + (c.path || 0) + (c.pedestrian || 0) + (c.steps || 0) + (c.cycleway || 0);
-    layers.push({ key: 'paths', label: 'Paths & roads', group: 'Base', swatch: '#c4b7a6', count: paths.count, detail: `${foot} footways, paths & cycleways, drawn at mapped width/surface`, object: paths.mesh });
-    root.add(paths.mesh);
-  }
-  const barriers = buildBarriers(feats.lines);
-  if (barriers.mesh) {
-    root.add(barriers.mesh);
-    const top = Object.entries(barriers.counts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${v} ${k}`).join(', ');
-    layers.push({ key: 'barriers', label: 'Fences, walls & hedges', group: 'Base', swatch: '#55803f', count: barriers.count, detail: top, object: barriers.mesh });
-  }
-  const bld = buildBuildings(feats.polygons);
-  if (bld.mesh) {
-    root.add(bld.mesh);
-    layers.push({ key: 'buildings', label: 'Buildings', group: 'Base', swatch: '#d8d0c2', count: bld.count, detail: bld.hiddenOutlines ? `${bld.hiddenOutlines} outlines replaced by building:part` : '', object: bld.mesh });
-  }
-  const furn = buildFurniture(feats.points, feats.lines);
-  for (const l of furn.layers) { root.add(l.object); layers.push(l); }
-  if (furn.pools) root.add(furn.pools);
+  const campus = buildCampus(osm, bbox);
+  const { root, layers, extent } = campus;
+  if (campus.pools) root.add(campus.pools);
 
   const labelGroup = new THREE.Group();
-  for (const lb of bld.labels) {
+  for (const lb of campus.labels) {
     const div = document.createElement('div');
     div.className = 'label';
     if (lb.ref) { const r = document.createElement('span'); r.className = 'ref'; r.textContent = lb.ref; div.append(r); }
@@ -223,9 +199,7 @@ function showModel(osm, { name, bbox, source }) {
   root.add(labelGroup);
   scene.add(root);
 
-  const p0 = proj.project(s, w), p1 = proj.project(n, e);
-  const extent = Math.max(p1[0] - p0[0], p1[1] - p0[1], 200);
-  model = { root, layers, glowMat: furn.glowMat, pools: furn.pools, labelGroup, extent, name, source };
+  model = { root, layers, glowMat: campus.glowMat, pools: campus.pools, labelGroup, extent, name, source, campus };
 
   ground.scale.set(extent * 4, 1, extent * 4);
   const sc = sun.shadow.camera;
@@ -241,7 +215,7 @@ function showModel(osm, { name, bbox, source }) {
 
   renderLayers(layers);
   renderSummary(layers, bbox);
-  renderUnmodelled(furn.unmodelled);
+  renderUnmodelled(campus.unmodelled);
   const ms = Math.round(performance.now() - t0);
   setStatus(`${name} · ${source} · built in ${ms} ms`);
   // Read by test/smoke.mjs.
@@ -436,6 +410,25 @@ bindChip('night', 'night', applyLighting);
 bindChip('labels', 'labels', () => { if (model) model.labelGroup.visible = prefs.labels; });
 bindChip('shadows', 'shadows', () => { renderer.shadowMap.enabled = prefs.shadows; scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; }); });
 $('reset-view').addEventListener('click', resetView);
+$('download-glb').addEventListener('click', async () => {
+  if (!model) return;
+  const btn = $('download-glb');
+  btn.disabled = true;
+  setStatus('Exporting glTF…');
+  try {
+    const glb = await campusToGlb(model.campus, { name: model.name, source: model.source });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([glb], { type: 'model/gltf-binary' }));
+    a.download = `${model.name.replace(/[^\w.-]+/g, '_').replace(/_+/g, '_')}.glb`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    setStatus(`Saved ${a.download} (${(glb.byteLength / 1e6).toFixed(1)} MB)`);
+  } catch (err) {
+    setStatus(`Export failed: ${err.message}`, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 $('panel-toggle').addEventListener('click', () => {
   const p = $('panel');

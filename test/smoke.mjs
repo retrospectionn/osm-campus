@@ -14,7 +14,7 @@ const browser = await chromium.launch({
 });
 let failed = false;
 try {
-  const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -39,6 +39,13 @@ try {
   await page.click('#night');
   await page.waitForTimeout(800);
   await page.screenshot({ path: out.replace('.png', '-night.png') });
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#download-glb')]);
+  const glbPath = out.replace('.png', '.glb');
+  await download.saveAs(glbPath);
+  const { readFile } = await import('node:fs/promises');
+  const glb = await readFile(glbPath);
+  console.log(`download: ${download.suggestedFilename()} (${(glb.length / 1e6).toFixed(2)} MB)`);
+  if (glb.readUInt32LE(0) !== 0x46546c67) { failed = true; console.error('Downloaded file is not a GLB'); }
   const expected = ['buildings', 'paths', 'areas', 'barriers', 'trees', 'bench', 'street_lamp', 'bicycle_parking', 'fire_hydrant'];
   const missing = expected.filter((k) => !info.layers.some((l) => l.key === k && l.count > 0));
   if (missing.length) { failed = true; console.error('Missing layers:', missing.join(', ')); }

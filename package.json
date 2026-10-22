@@ -9,7 +9,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "fetch-data": "node scripts/fetch-osm.mjs",
-    "smoke": "node test/smoke.mjs"
+    "smoke": "node test/smoke.mjs",
+    "extract": "bash scripts/extract-osmium.sh",
+    "gltf": "node scripts/build-gltf.mjs",
+    "test:pipeline": "node test/pipeline.mjs"
   },
   "dependencies": {
     "three": "0.180.0"

@@ -23,28 +23,45 @@ export function parseOsm(input) {
   return index(input.elements);
 }
 
+// Regex-based so it runs in the browser and in Node (scripts/build-gltf.mjs).
+// Handles the XML written by osmium, JOSM (single quotes) and openstreetmap.org.
+const XML_ELEM = /<(node|way|relation)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/g;
+const XML_CHILD = /<(tag|nd|member)\b([^>]*?)\/?>/g;
+const XML_ATTR = /([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+const XML_ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+const unescapeXml = (v) => v.replace(/&(amp|lt|gt|quot|apos|#x?[0-9a-f]+);/gi, (_, e) =>
+  e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : +e.slice(1)) : XML_ENT[e]);
+function xmlAttrs(s) {
+  const o = {};
+  for (const m of s.matchAll(XML_ATTR)) o[m[1]] = unescapeXml(m[2] ?? m[3]);
+  return o;
+}
+
 function parseXml(text) {
-  const doc = new DOMParser().parseFromString(text, 'application/xml');
-  if (doc.querySelector('parsererror')) throw new Error('Could not parse OSM XML');
-  const tagsOf = (el) => {
-    const t = {};
-    for (const tag of el.getElementsByTagName('tag')) t[tag.getAttribute('k')] = tag.getAttribute('v');
-    return t;
-  };
+  if (!/<osm\b/.test(text.slice(0, 2000))) throw new Error('Not an OSM XML document');
   const elements = [];
-  for (const n of doc.getElementsByTagName('node')) {
-    elements.push({ type: 'node', id: +n.getAttribute('id'), lat: +n.getAttribute('lat'), lon: +n.getAttribute('lon'), tags: tagsOf(n) });
+  for (const m of text.matchAll(XML_ELEM)) {
+    const a = xmlAttrs(m[2]);
+    const el = { type: m[1], id: +a.id, tags: {} };
+    if (m[1] === 'node') { el.lat = +a.lat; el.lon = +a.lon; }
+    if (m[1] === 'way') el.nodes = [];
+    if (m[1] === 'relation') el.members = [];
+    for (const c of (m[3] || '').matchAll(XML_CHILD)) {
+      const ca = xmlAttrs(c[2]);
+      if (c[1] === 'tag') el.tags[ca.k] = ca.v;
+      else if (c[1] === 'nd' && el.nodes) el.nodes.push(+ca.ref);
+      else if (c[1] === 'member' && el.members) el.members.push({ type: ca.type, ref: +ca.ref, role: ca.role || '' });
+    }
+    elements.push(el);
   }
-  for (const w of doc.getElementsByTagName('way')) {
-    elements.push({ type: 'way', id: +w.getAttribute('id'), nodes: [...w.getElementsByTagName('nd')].map((nd) => +nd.getAttribute('ref')), tags: tagsOf(w) });
+  const osm = index(elements);
+  const b = text.slice(0, 4000).match(/<bounds\b([^>]*)\/?>/);
+  if (b) {
+    const a = xmlAttrs(b[1]);
+    const box = [+a.minlat, +a.minlon, +a.maxlat, +a.maxlon];
+    if (box.every(Number.isFinite)) osm.bounds = box;
   }
-  for (const r of doc.getElementsByTagName('relation')) {
-    elements.push({
-      type: 'relation', id: +r.getAttribute('id'), tags: tagsOf(r),
-      members: [...r.getElementsByTagName('member')].map((m) => ({ type: m.getAttribute('type'), ref: +m.getAttribute('ref'), role: m.getAttribute('role') })),
-    });
-  }
-  return index(elements);
+  return osm;
 }
 
 function index(elements) {
@@ -57,7 +74,9 @@ function index(elements) {
   return { nodes, ways, relations };
 }
 
+// The file's <bounds> when present (osmium --set-bounds, OSM exports), else the node extent.
 export function boundsOf(osm) {
+  if (osm.bounds) return osm.bounds;
   let s = Infinity, w = Infinity, n = -Infinity, e = -Infinity;
   for (const nd of osm.nodes.values()) {
     if (nd.lat < s) s = nd.lat; if (nd.lat > n) n = nd.lat;

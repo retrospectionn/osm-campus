@@ -109,5 +109,6 @@ export function buildBuildings(polygons) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.userData.pick = (hit) => picks.find(hit.faceIndex);
+  mesh.userData.ranges = picks; // lets the glTF export split buildings into named nodes
   return { mesh, count: visible.length, hiddenOutlines, labels };
 }

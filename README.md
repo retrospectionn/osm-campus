@@ -54,10 +54,64 @@ fallback. Other ways to load it:
 
 `npm run build` writes a static site to `dist/` that can be hosted anywhere.
 
+## 3D model files with osmium (glTF / GLB)
+
+The same model can be saved as a **glTF 2.0 binary (`.glb`)** that opens in
+Blender, Unity, Unreal, CesiumJS, QGIS 3D, Windows 3D Viewer or
+[gltf-viewer.donmccurdy.com](https://gltf-viewer.donmccurdy.com/).
+
+- **In the browser:** the *Download .glb* button exports whatever is loaded.
+- **From an OSM extract with [osmium-tool](https://osmcode.org/osmium-tool/):**
+  no Overpass needed, reproducible, and works offline once the extract is
+  downloaded.
+
+```bash
+# osmium-tool: apt install osmium-tool | brew install osmium-tool | conda install -c conda-forge osmium-tool
+curl -LO https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf
+npm run extract -- niedersachsen-latest.osm.pbf oldenburg-haarentor
+npm run extract -- niedersachsen-latest.osm.pbf oldenburg-wechloy
+npm run extract -- niedersachsen-latest.osm.pbf my-area 53.14,8.17,53.15,8.19   # any box (s,w,n,e)
+```
+
+`scripts/extract-osmium.sh` runs three steps:
+
+1. `osmium extract --strategy smart --set-bounds` clips the regional extract
+   to the campus box. Buildings, paths and multipolygons that cross the edge
+   stay complete.
+2. `osmium tags-filter` keeps only what the model renders, using the same tag
+   list as the Overpass query.
+3. `osmium cat` writes `public/data/<id>.osm`, which the viewer then loads
+   instantly for that campus. `scripts/build-gltf.mjs` writes
+   `build/<id>.glb`.
+
+`npm run gltf -- some.osm out.glb` converts any OSM XML or Overpass JSON file
+directly, for example a JOSM save or an openstreetmap.org export.
+
+What is in the `.glb`:
+
+- One node group per layer (`buildings`, `paths`, `trees`, `bench`,
+  `street_lamp`, …), with vertex colours and one material. Lamp heads use a
+  separate emissive material.
+- Each building is its own node, named after the building (e.g.
+  `Library (way 7)`). Its OSM id and all its tags are stored in glTF `extras`,
+  so Blender shows them as custom properties.
+- Coordinates are metres from the bbox centre, with +X east, +Y up and −Z
+  north. The origin lat/lon, bbox and ODbL attribution are in the scene
+  `extras`, which lets the model be georeferenced in Cesium or QGIS.
+- Instanced furniture is baked into plain meshes, so it opens in any glTF
+  tool without extensions.
+
+## Tests
+
 `npm run smoke` renders the viewer in headless Chromium and checks that every
-layer builds. It uses a **synthetic** fixture from `test/fixture.mjs`, not real
+layer builds and that the *Download .glb* button produces a valid GLB. It uses a **synthetic** fixture from `test/fixture.mjs`, not real
 OSM data, and needs a Playwright Chromium: either
 `npx playwright install chromium`, or set `CHROMIUM_PATH`.
+
+`npm run test:pipeline` converts the same synthetic fixture to `.osm.pbf` and
+runs it through the osmium script. It then reloads the `.glb` with three.js
+and checks the layer groups, the building tags and the attribution. It needs
+`osmium` on your PATH.
 
 ## Code map
 
@@ -67,7 +121,12 @@ src/osm.js        OSM JSON/XML parsing, multipolygon assembly, local metric proj
 src/buildings.js  Simple 3D Buildings extrusion → one merged mesh
 src/ground.js     Surfaces, path/road ribbons, waterways, barrier walls
 src/furniture.js  Catalogue of micro-mapping models → InstancedMesh per type; trees
-src/main.js       Scene, lighting, day/night, picking, panels
+src/model.js      Runs all builders → one scene graph (shared by browser and CLI)
+src/export.js     Scene → glTF binary: bakes instances, one node per building
+src/main.js       Scene, lighting, day/night, picking, panels, .glb download
+scripts/extract-osmium.sh  osmium extract + tags-filter → .osm snapshot + .glb
+scripts/build-gltf.mjs     OSM XML / Overpass JSON → .glb in Node
+scripts/fetch-osm.mjs      Overpass → public/data/<id>.json snapshot
 ```
 
 Each feature type is one entry in `CATALOG` (`src/furniture.js`) with a tag
@@ -116,7 +175,7 @@ phone, and use **iD** or **JOSM** for building heights and `building:part`.
 | **Unity / Unreal** (+ Cesium plugins) | Simulation, VR walkthroughs, game-engine digital twins | Native apps; much heavier deployment |
 
 A practical path: prototype in three.js from live OSM (this repo). Then bake
-stable geometry to glTF with OSM2World or this code. Move to Cesium or
+stable geometry to glTF with `npm run extract` (osmium) or OSM2World. Move to Cesium or
 deck.gl only when you need terrain, 3D Tiles or live data overlays.
 
 ## Limitations and next steps

@@ -446,7 +446,7 @@ export function buildFurniture(points, lines) {
 
   // Night-time light pools under each lamp.
   let pools = null;
-  if (lamps.length) {
+  if (lamps.length && typeof document !== 'undefined') {
     const tex = radialTexture();
     const g = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({ map: tex, color: '#ffc37a', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 });
